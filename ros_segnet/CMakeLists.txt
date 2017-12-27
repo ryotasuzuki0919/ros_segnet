@@ -13,6 +13,8 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   roscpp
   rospy
+  cv_bridge
+  image_transport
 )
 
 ## System dependencies are found with CMake's conventions
