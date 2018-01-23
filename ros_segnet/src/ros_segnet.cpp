@@ -40,7 +40,7 @@ class SegnetMap
                  // cloud_cbで受け取ったポイントクラウドを保存する変数
 		pcl::PointCloud<pcl::PointXYZ> g_callback_cloud;
 		std::vector<sensor_msgs::PointCloud2> cloud_buffer;
-                pcl::PointCloud<pcl::PointXYZRGB> color_point_map;
+                pcl::PointCloud<pcl::PointXYZRGB>::Ptr color_point_map;
 };
 
 
@@ -50,6 +50,8 @@ SegnetMap::SegnetMap(ros::NodeHandle nh)
 	sub_point     = nh.subscribe<sensor_msgs::PointCloud2>("/hokuyo3d/hokuyo_cloud2",1,&SegnetMap::cloud_cb, this);
 	segnet_output = nh.subscribe<sensor_msgs::Image>("/segnet_output",1,&SegnetMap::image_cb, this);
 	pub           = nh.advertise<sensor_msgs::PointCloud2>("/color_map", 1);
+
+	color_point_map = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>());
 
 	map_frame_ = "map";
 
@@ -106,33 +108,32 @@ void  SegnetMap::image_cb(const sensor_msgs::ImageConstPtr& msg){
             pcl::PointXYZRGB color_point;
 	    color_point.x = conv_input->points[cell].x;
 	    color_point.y = conv_input->points[cell].y;
+	    color_point.z = 0.0;
 	    color_point.r = mat.at<cv::Vec3b>(i,j)[2];
 	    color_point.g = mat.at<cv::Vec3b>(i,j)[1];
 	    color_point.b = mat.at<cv::Vec3b>(i,j)[0];
-            color_point_map.points.push_back(color_point);
-            color_point_map.points[cell].z = 0.0;
+            color_point_map->points.push_back(color_point);
         }
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr color_ptr(new pcl::PointCloud<pcl::PointXYZRGB>());
-    color_ptr = color_point_map.makeShared(); 
     pcl::PointCloud<pcl::PointXYZRGB> color_point_vg;
     pcl::VoxelGrid<pcl::PointXYZRGB> vg;
-    	vg.setInputCloud(color_ptr);
-		vg.setLeafSize(0.01,0.01,0.01);
-			vg.setDownsampleAllData(true);
-			vg.filter(color_point_vg);
+    vg.setInputCloud(color_point_map);
+    vg.setLeafSize(0.01,0.01,0.01);
+    vg.setDownsampleAllData(true);
+    vg.filter(color_point_vg);
 
-         sensor_msgs::PointCloud2 output_cloud;
-            // pcl_cloudは変換したいpcl::PointCloud
-         pcl::toROSMsg(color_point_vg, output_cloud);
+    sensor_msgs::PointCloud2 output_cloud;
+    // pcl_cloudは変換したいpcl::PointCloud
+    pcl::toROSMsg(color_point_vg, output_cloud);
      
-          // inputはsubscribeしているsensor_msgs::PointCloud2型の変数
-         //header (タイムスタンプとかが入っている) をコピーする
-         output_cloud.header = msg->header;
-        // frame_idを変更する．今回の場合はmap
-         output_cloud.header.frame_id = "map";
-         pub.publish(output_cloud);
+      
+    // inputはsubscribeしているsensor_msgs::PointCloud2型の変数
+    //header (タイムスタンプとかが入っている) をコピーする
+    output_cloud.header = msg->header;
+    // frame_idを変更する．今回の場合はmap
+    output_cloud.header.frame_id = "map";
+    pub.publish(output_cloud);
 }
 
 
