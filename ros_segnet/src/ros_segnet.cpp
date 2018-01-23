@@ -9,11 +9,14 @@
 #include <pcl/point_types.h>
 #include <pcl/PCLPointCloud2.h>
 
+#include <pcl/filters/voxel_grid.h>
+
 #include <image_transport/image_transport.h>
 #include <opencv2/highgui/highgui.hpp>
 // Converting ROS image messages to OpenCV images
 #include <cv_bridge/cv_bridge.h>
 
+#include <cmath>
 
 class SegnetMap
 {
@@ -77,28 +80,32 @@ void SegnetMap::cloud_cb(const sensor_msgs::PointCloud2ConstPtr& input){
 
 void  SegnetMap::image_cb(const sensor_msgs::ImageConstPtr& msg){
     sensor_msgs::PointCloud2 now_cloud;
+    float time_diff_tmp = 1000000000;
+    if(!cloud_buffer.size()) return;
     for(auto& i:cloud_buffer){
-	    if((msg->header.stamp.toSec() - i.header.stamp.toSec()) < 0){
+	    if(std::abs(msg->header.stamp.toSec() - i.header.stamp.toSec()) < time_diff_tmp){
+		    time_diff_tmp = std::abs(msg->header.stamp.toSec() - i.header.stamp.toSec());
 		    now_cloud = i;
-		    break;
 	    }
     }
-
 
     // ROSのPointCloudの型からpclのPointCloudに変換
     pcl::PointCloud<pcl::PointXYZ>::Ptr conv_input(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(now_cloud, *conv_input);
 
+
+    if(!conv_input->points.size()) return;
+
     cv_bridge::CvImagePtr in_msg;
     in_msg = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     cv::Mat &mat = in_msg->image;
-    for(int i=0; i<in_msg->image.cols; i++){
+    for(int i=324; i<in_msg->image.cols; i++){
         for(int j=0; j<in_msg->image.rows; j++){
             int cell = i * in_msg->image.rows + j;
             
             pcl::PointXYZRGB color_point;
-	    color_point.x = g_callback_cloud.points[cell].x;
-	    color_point.y = g_callback_cloud.points[cell].y;
+	    color_point.x = conv_input->points[cell].x;
+	    color_point.y = conv_input->points[cell].y;
 	    color_point.r = mat.at<cv::Vec3b>(i,j)[2];
 	    color_point.g = mat.at<cv::Vec3b>(i,j)[1];
 	    color_point.b = mat.at<cv::Vec3b>(i,j)[0];
@@ -107,9 +114,18 @@ void  SegnetMap::image_cb(const sensor_msgs::ImageConstPtr& msg){
         }
     }
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr color_ptr(new pcl::PointCloud<pcl::PointXYZRGB>());
+    color_ptr = color_point_map.makeShared(); 
+    pcl::PointCloud<pcl::PointXYZRGB> color_point_vg;
+    pcl::VoxelGrid<pcl::PointXYZRGB> vg;
+    	vg.setInputCloud(color_ptr);
+		vg.setLeafSize(0.01,0.01,0.01);
+			vg.setDownsampleAllData(true);
+			vg.filter(color_point_vg);
+
          sensor_msgs::PointCloud2 output_cloud;
             // pcl_cloudは変換したいpcl::PointCloud
-         pcl::toROSMsg(color_point_map, output_cloud);
+         pcl::toROSMsg(color_point_vg, output_cloud);
      
           // inputはsubscribeしているsensor_msgs::PointCloud2型の変数
          //header (タイムスタンプとかが入っている) をコピーする
